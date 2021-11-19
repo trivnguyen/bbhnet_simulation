@@ -54,7 +54,8 @@ def pearson_shift(x, y, shift):
     return corr
 
 def simulate_whitened_bbh_signals(
-    sample_params, sample_rate, sample_duration, triggers, H1_psd, L1_psd):
+    sample_params, sample_rate, sample_duration, triggers, H1_psd, L1_psd,
+    flow=None, fhigh=None):
     ''' generate BBH signals
     Arguments:
     - sample_params: dictionary of GW parameters
@@ -88,7 +89,7 @@ def simulate_whitened_bbh_signals(
         p = dict()
         for k, v in sample_params.items():
             p[k] = v[i]
-        ra, dec, geceont_time, psi = p['ra'], p['dec'], p['geocent_time'], p['psi']
+        ra, dec, geocent_time, psi = p['ra'], p['dec'], p['geocent_time'], p['psi']
         polarizations = waveform_generator.time_domain_strain(p)
 
         # simulate signals for Hanford and Livingston
@@ -122,13 +123,13 @@ def simulate_whitened_bbh_signals(
                 signal = signal.lowpass(fhigh)
             else:
                 signal = signal.bandpass(flow, fhigh)
-            signal = signal.whiten(asd=np.sqrt(noise_psd[j]))
+            signal = signal.whiten(asd=np.sqrt(noise_psd))
 
             # convert back to numpy array
             signal = signal.value
 
             # calculate snr
-            snr[i][j] = get_snr(signal, noise_psd[j], sample_rate)
+            snr[i][j] = get_snr(signal, noise_psd, sample_rate)
 
             # truncate signal
             istart = (waveform_size - sample_size) // 2

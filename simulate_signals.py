@@ -149,7 +149,7 @@ if __name__ == '__main__':
     # simulate whitened GW waveforms
     signals, snr = utils.simulate_whitened_bbh_signals(
         sample_params, FLAGS.sample_rate, FLAGS.sample_duration, triggers,
-        H1_psd, L1_psd)
+        H1_psd, L1_psd, flow=FLAGS.flow, fhigh=FLAGS.fhigh)
 
     # add BBH signals to noise
     H1_data += signals[:, 0]
