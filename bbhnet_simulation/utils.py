@@ -133,9 +133,81 @@ def simulate_whitened_bbh_signals(
 
             # truncate signal
             istart = (waveform_size - sample_size) // 2
-            tstop = idx_start + sample_size
+            tstop = istart + sample_size
             signal = signal[istart:istop]
 
             signals[i, j] += signal
 
     return signals, snr
+
+def simulate_whitened_blip_glitches(
+    sample_params, sample_rate, sample_duration, triggers, H1_psd, L1_psd,
+    flow=None, fhigh=None):
+    ''' generate blip glitches
+    Arguments:
+    - sample_params: dictionary of GW parameters
+    - sample_duration: time duration of each sample
+    - triggers: trigger time (relative to `sample_duration`) of each sample
+    - H1_psd, L1_psd: Hanford and Livingston PSD
+    '''
+
+    # define some signal properties
+    # get total number of samples
+    waveform_duration = 8
+    num_samples = len(sample_params['geocent_time'])
+    sample_size = int(sample_rate * sample_duration)
+    waveform_size = int(sample_rate * waveform_duration)
+
+    # loop over all blip glitches signal
+    signals = np.zeros((num_samples, 2, sample_size))
+    snr = np.zeros((num_samples, 2))
+    for i in range(num_samples):
+ 
+        # randomly chosen whether the glitch is H1 or L1
+        if np.random.rand() > 0.5:
+            ifo = 'H1'
+            noise_psd = H1_psd
+        else:
+            ifo = 'L1'
+            noise_psd = L1_psd    
+
+        # simulate blip glitch signal
+        signal = None
+
+        # bandpass filter and whitenting using gwpy
+        signal = TimeSeries(signal, dt=1./sample_rate)
+        if (flow is not None) and (fhigh is None):
+            signal = signal.highpass(flow)
+        elif (flow is None) and (fhigh is not None):
+            signal = signal.lowpass(fhigh)
+        else:
+            signal = signal.bandpass(flow, fhigh)
+        signal = signal.whiten(asd=np.sqrt(noise_psd))
+
+        # convert back to numpy array
+        signal = signal.value
+
+        # calculate snr of signal and scale to the chosen snr
+        signal_snr = get_snr(signal, noise_psd, sample_rate)
+        target_snr = sample_params['snr'][i]
+        signal = signal * target_snr / signal_snr
+
+        # truncate signal
+        istart = (waveform_size - sample_size) // 2
+        tstop = istart + sample_size
+        signal = signal[istart:istop]
+        
+        # add to the appropriate detector
+        if ifo == 'H1':
+            snr[i][0] = target_snr
+            snr[i][1] = 0
+            signals[i, 0] = signal
+            signals[i, 1] = np.zeros_like(signal)
+        elif ifo == 'L1':
+            snr[i][1] = target_snr
+            snr[i][0] = 0
+            signals[i, 1] = signal
+            signals[i, 0] = np.zeros_like(signal)
+
+    return signals, snr
+

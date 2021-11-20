@@ -74,6 +74,9 @@ def parse_cmd():
 
     # signal simulation args
     parser.add_argument(
+        '-s', '--signal-type', required=True, type=str.lower, choices=('bbh', 'glitch'), 
+        help='type of signal, either bbh or glitch')
+    parser.add_argument(
         '-p', '--prior-file', required=True,
         help='path to prior config file. Required for signal simulation')
     parser.add_argument(
@@ -133,25 +136,40 @@ if __name__ == '__main__':
     H1_data = utils.as_stride(H1_strain.value, sample_size, step_size)
     L1_data = utils.as_stride(L1_strain.value, sample_size, step_size)
 
-    # simulate GW events
-    N_sample = len(H1_data)
-    times = H1_strain.t0.value + np.arange(0., len(H1_data)) * FLAGS.time_step
+    # simulate waveforms
+    num_samples = len(H1_data)
+    times = H1_strain.t0.value + np.arange(0., num_samples) * FLAGS.time_step
 
-    # sample GW parameters from prior distribution
-    logging.info('Simulating BBH signals from prior file {}'.format(FLAGS.prior_file))
-    priors = bilby.gw.prior.BBHPriorDict(FLAGS.prior_file)
-    sample_params = priors.sample(N_sample)
+    if FLAGS.signal_type == 'bbh':
+        # sample GW parameters from a prior distribution
+        logging.info('Simulating BBH signals from prior file {}'.format(FLAGS.prior_file))
+        priors = bilby.gw.prior.BBHPriorDict(FLAGS.prior_file)
+        sample_params = priors.sample(num_samples)
 
-    # Bilby does not sample GPS time, so we have to manually do it
-    triggers = np.random.uniform(FLAGS.min_trigger, FLAGS.max_trigger, N_sample)
-    sample_params['geocent_time'] = triggers + times
+        # Bilby does not sample GPS time, so we have to manually do it
+        triggers = np.random.uniform(FLAGS.min_trigger, FLAGS.max_trigger, num_samples)
+        sample_params['geocent_time'] = triggers + times
 
-    # simulate whitened GW waveforms
-    signals, snr = utils.simulate_whitened_bbh_signals(
-        sample_params, FLAGS.sample_rate, FLAGS.sample_duration, triggers,
-        H1_psd, L1_psd, flow=FLAGS.flow, fhigh=FLAGS.fhigh)
+        # simulate whitened GW waveforms
+        signals, snr = utils.simulate_whitened_bbh_signals(
+            sample_params, FLAGS.sample_rate, FLAGS.sample_duration, triggers,
+            H1_psd, L1_psd, flow=FLAGS.flow, fhigh=FLAGS.fhigh)
 
-    # add BBH signals to noise
+    elif FLAGS.signal_type == 'glitch':
+        # sample blip glitch parameters from a prior distribution
+        logging.info('Simulating glitch from prior file {}'.format(FLAGS.prior_file))
+        priors = bilby.core.prior.PriorDict(FLAGS.prior_file)
+        sample_params = priors.sample(num_samples)
+
+        triggerss = np.random.uniform(FLAGS.min_trigger, FLAGS.max_trigger, num_samples)
+        sample_params['geocent_time'] = triggers + times
+
+        # simulate whitened blip glitches
+        signals, snr = utils.simulate_whitened_blip_glitches(
+            sample_params, FLAGS.sample_rate, FLAGS.sample_duration, triggers,
+            H1_psd, L1_psd, flow=FLAGS.flow, fhigh=FLAGS.fhigh)
+
+    # add signals to noise
     H1_data += signals[:, 0]
     L1_data += signals[:, 1]
     data = np.stack([H1_data, L1_data], axis=1)
@@ -191,7 +209,8 @@ if __name__ == '__main__':
             'sample_rate': FLAGS.sample_rate,
             'sample_duration': FLAGS.sample_duration,
             'psd_fftlength': fftlength,
-            'waveform_duration': 8
+            'waveform_duration': 8,
+            'signal_type': FLAGS.signal_type,
         })
 
         # write signal parameters
