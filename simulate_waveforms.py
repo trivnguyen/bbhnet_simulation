@@ -26,7 +26,7 @@ def read_strain(ifo, t0, t1, fs, flow=None, fhigh=None):
     Convienience function to read and preprocess strain data
     '''
     # download strain from GWOSC
-    strain = TimeSeries.fetch_open_data(ifo, t0, t1)
+    strain = TimeSeries.fetch_open_data(ifo, t0, t1, cache=True)
 
     # resample strain
     strain = strain.resample(fs)
@@ -74,7 +74,7 @@ def parse_cmd():
 
     # signal simulation args
     parser.add_argument(
-        '-s', '--signal-type', required=True, type=str.lower, choices=('bbh', 'glitch'), 
+        '-s', '--signal-type', required=True, type=str.lower, choices=('bbh', 'glitch'),
         help='type of signal, either bbh or glitch')
     parser.add_argument(
         '-p', '--prior-file', required=True,
@@ -85,8 +85,6 @@ def parse_cmd():
     parser.add_argument(
         '--max-trigger', type=float, default=0.95,
         help='maximum trigger time w.r.t to sample. must be within [0, sample_duration]')
-    parser.add_argument('-s', '--seed', type=int, required=False,
-                        help='random seed for reproducibility')
 
     return parser.parse_args()
 
@@ -155,19 +153,25 @@ if __name__ == '__main__':
             sample_params, FLAGS.sample_rate, FLAGS.sample_duration, triggers,
             H1_psd, L1_psd, flow=FLAGS.flow, fhigh=FLAGS.fhigh)
 
+        # set all labels to 1
+        label = np.ones((num_samples, 1))
+
     elif FLAGS.signal_type == 'glitch':
         # sample blip glitch parameters from a prior distribution
         logging.info('Simulating glitch from prior file {}'.format(FLAGS.prior_file))
         priors = bilby.core.prior.PriorDict(FLAGS.prior_file)
         sample_params = priors.sample(num_samples)
 
-        triggerss = np.random.uniform(FLAGS.min_trigger, FLAGS.max_trigger, num_samples)
+        triggers = np.random.uniform(FLAGS.min_trigger, FLAGS.max_trigger, num_samples)
         sample_params['geocent_time'] = triggers + times
 
         # simulate whitened blip glitches
         signals, snr = utils.simulate_whitened_blip_glitches(
             sample_params, FLAGS.sample_rate, FLAGS.sample_duration, triggers,
             H1_psd, L1_psd, flow=FLAGS.flow, fhigh=FLAGS.fhigh)
+
+        # set all labels to 2
+        label = np.zeros((num_samples, 1)) + 2
 
     # add signals to noise
     H1_data += signals[:, 0]
@@ -191,7 +195,7 @@ if __name__ == '__main__':
         if correlation is not None:
             f.create_dataset('corr', data=correlation)
         f.create_dataset('times', data=times)
-
+        f.create_dataset('label', data=label)
         f.create_dataset('h1_psd', data=H1_psd.value)
         f.create_dataset('l1_psd', data=L1_psd.value)
         f.create_dataset('freq', data=H1_psd.frequencies.value)

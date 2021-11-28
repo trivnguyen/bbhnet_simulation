@@ -18,7 +18,7 @@ def get_snr(data, noise_psd, fs, flow=20):
     noise_psd_interp[noise_psd_interp == 0] = 1.
 
     snr = 4 * np.abs(data_fd)**2 / noise_psd_interp.value * dfreq
-    snr = np.sum(snr[fmin <= data_freq])
+    snr = np.sum(snr[flow <= data_freq])
     snr = np.sqrt(snr)
 
     return snr
@@ -52,6 +52,37 @@ def pearson_shift(x, y, shift):
         xr = np.roll(x, s, axis=1)
         corr[:, i] = (xr * y).sum(1) / denom
     return corr
+
+def time_domain_sine_gaussian(params, duration, sample_rate, clip=1.):
+    ''' Function to generate Sine Gaussian'''
+    # Get sine gauss parameters
+    A = params.get('A', 1)
+    f0 = params.get('f0', 100)
+    tau = params.get('tau', 0.05)
+    t0 = duration / 2.
+
+    # Generate sine guassian
+    t = np.arange(0., duration, 1./sample_rate)
+    x = A * np.exp(-(t - t0)**2 / tau**2) * np.sin(2 * np.pi * f0 * (t - t0))
+
+    # clip waveform
+    max_A = A * clip
+    x[x > max_A] = max_A
+    x[x < -max_A] = -max_A
+
+    return x
+
+def time_domain_blip(duration, sample_rate, f0_min=20, f0_width=1000, N=20):
+    ''' Generate blip glitches from adding sine gaussian waveform '''
+    f0_arr = 10**np.linspace(np.log10(f0_min), np.log10(f0_min + f0_width), N)
+    tau_arr = 10**np.linspace(-1, -4, N)
+
+    # Generate blip glitch by adding SG
+    x = np.zeros(int(duration * sample_rate))
+    for i in range(N):
+        params = dict(f0=f0_arr[i], tau=tau_arr[i])
+        x += time_domain_sine_gaussian(params, duration, sample_rate)
+    return x
 
 def simulate_whitened_bbh_signals(
     sample_params, sample_rate, sample_duration, triggers, H1_psd, L1_psd,
@@ -133,7 +164,7 @@ def simulate_whitened_bbh_signals(
 
             # truncate signal
             istart = (waveform_size - sample_size) // 2
-            tstop = istart + sample_size
+            istop = istart + sample_size
             signal = signal[istart:istop]
 
             signals[i, j] += signal
@@ -162,19 +193,25 @@ def simulate_whitened_blip_glitches(
     signals = np.zeros((num_samples, 2, sample_size))
     snr = np.zeros((num_samples, 2))
     for i in range(num_samples):
- 
         # randomly chosen whether the glitch is H1 or L1
         if np.random.rand() > 0.5:
             ifo = 'H1'
             noise_psd = H1_psd
         else:
             ifo = 'L1'
-            noise_psd = L1_psd    
+            noise_psd = L1_psd
 
         # simulate blip glitch signal
-        signal = None
+        f0_min = sample_params['f0_min'][i]
+        f0_width = sample_params['f0_width'][i]
+        target_snr = sample_params['snr'][i]
+        signal = time_domain_blip(waveform_duration, sample_rate, f0_min, f0_width)
 
-        # bandpass filter and whitenting using gwpy
+        # shift to trigger time
+        dt = triggers[i] - sample_duration / 2.
+        signal = np.roll(signal, int(dt * sample_rate))
+
+        # bandpass filter
         signal = TimeSeries(signal, dt=1./sample_rate)
         if (flow is not None) and (fhigh is None):
             signal = signal.highpass(flow)
@@ -182,32 +219,29 @@ def simulate_whitened_blip_glitches(
             signal = signal.lowpass(fhigh)
         else:
             signal = signal.bandpass(flow, fhigh)
+        # calculate snr of signal and scale to the chosen snr
+        signal_snr = get_snr(signal, noise_psd, sample_rate)
+        signal = signal * target_snr / signal_snr
+
+        # whitening signal
         signal = signal.whiten(asd=np.sqrt(noise_psd))
 
         # convert back to numpy array
         signal = signal.value
 
-        # calculate snr of signal and scale to the chosen snr
-        signal_snr = get_snr(signal, noise_psd, sample_rate)
-        target_snr = sample_params['snr'][i]
-        signal = signal * target_snr / signal_snr
 
         # truncate signal
         istart = (waveform_size - sample_size) // 2
-        tstop = istart + sample_size
+        istop = istart + sample_size
         signal = signal[istart:istop]
-        
+
         # add to the appropriate detector
         if ifo == 'H1':
             snr[i][0] = target_snr
-            snr[i][1] = 0
-            signals[i, 0] = signal
-            signals[i, 1] = np.zeros_like(signal)
+            signals[i, 0] += signal
         elif ifo == 'L1':
             snr[i][1] = target_snr
-            snr[i][0] = 0
-            signals[i, 1] = signal
-            signals[i, 0] = np.zeros_like(signal)
+            signals[i, 1] += signal
 
     return signals, snr
 

@@ -25,7 +25,7 @@ def read_strain(ifo, t0, t1, fs, flow=None, fhigh=None):
     Convienience function to read and preprocess strain data
     '''
     # download strain from GWOSC
-    strain = TimeSeries.fetch_open_data(ifo, t0, t1)
+    strain = TimeSeries.fetch_open_data(ifo, t0, t1, cache=True)
 
     # resample strain
     strain = strain.resample(fs)
@@ -129,6 +129,9 @@ if __name__ == '__main__':
     # also get the starting GPS time of each sample
     times = H1_strain.t0.value + np.arange(0., len(H1_data)) * FLAGS.time_step
 
+    # set all labels to 0
+    label = np.zeros((len(data), 1))
+
     # print out info
     logging.info('Number of samples: {}'.format(len(data)))
 
@@ -139,10 +142,11 @@ if __name__ == '__main__':
         if correlation is not None:
             f.create_dataset('corr', data=correlation)
         f.create_dataset('times', data=times)
-
+        f.create_dataset('label', data=label)
         f.create_dataset('h1_psd', data=H1_psd.value)
         f.create_dataset('l1_psd', data=L1_psd.value)
         f.create_dataset('freq', data=H1_psd.frequencies.value)
+        f.create_dataset('snr', data=np.zeros((len(data), 2)))
 
         # write noise attributes
         f.attrs.update({
