@@ -51,7 +51,7 @@ def parse_cmd():
     parser.add_argument('--min-snr', type=float, default=25,
                         help='mininum signal-to-noise ratio')
     parser.add_argument('--max-snr', type=float, default=25,
-                        help='maximum signal-to-noise ratio') 
+                        help='maximum signal-to-noise ratio')
 
     return parser.parse_args()
 
@@ -68,7 +68,7 @@ if __name__ == '__main__':
     logging.info('Reading Livingston data from : {}'.format(FLAGS.L1_infile))
 
     H1_strain = TimeSeries.read(FLAGS.H1_infile, 'H1:GWOSC-4KHZ_R1_STRAIN')
-    L1_strain = TimeSeries.read(FLAGS.L1_infile, 'H1:GWOSC-4KHZ_R1_STRAIN')
+    L1_strain = TimeSeries.read(FLAGS.L1_infile, 'L1:GWOSC-4KHZ_R1_STRAIN')
     sample_rate = H1_strain.sample_rate.value
     duration = H1_strain.duration.value
     fftlength = int(max(2, np.ceil(2048 / sample_rate)))
@@ -106,7 +106,7 @@ if __name__ == '__main__':
         signals, old_snr = utils.simulate_bbh_signals(
             sample_params, sample_rate, waveform_duration, triggers,
             H1_psd=H1_psd, L1_psd=L1_psd)
-        
+
         # sample snr
         new_snr = np.random.uniform(FLAGS.min_snr, FLAGS.max_snr, num_samples)
 
@@ -119,7 +119,7 @@ if __name__ == '__main__':
     # write to a different frame
     logging.info('Writing new Hanford    data to: {}'.format(FLAGS.H1_outfile))
     logging.info('Writing new Livingston data to: {}'.format(FLAGS.L1_outfile))
-    
+
     # create a copy of current strain
     # add signals into new strain
     H1_new_strain = copy.deepcopy(H1_strain)
@@ -127,7 +127,7 @@ if __name__ == '__main__':
     for t, signal in zip(times, signals):
         H1_signal = signal[0]
         L1_signal = signal[1]
-       
+
         tstart_offset = t - H1_strain.t0.value - waveform_duration // 2
         istart = int(sample_rate * tstart_offset)
         istop = istart + int(sample_rate * waveform_duration)
@@ -148,7 +148,7 @@ if __name__ == '__main__':
         f.create_group('L1')
         f['L1'].create_dataset('SNR', data=snr[:, 1])
         f['L1'].create_dataset('signal', data=signals[:, 1])
-        
+
         f.create_group('signal_params')
         for k, v in sample_params.items():
             f['signal_params'].create_dataset(k, data=v)
